@@ -34,11 +34,7 @@ if test -e $nix_profile_path
   # these files out of order, and can't stop anything in the real extra confdir from sourcing.
   # This is cribbed from $__fish_data_dir/config.fish
   set -l sourcelist
-  set -l configdir ~/.config
-  if set -q XDG_CONFIG_HOME
-    set configdir $XDG_CONFIG_HOME
-  end
-  for file in $configdir/fish/conf.d/*.fish $__fish_sysconf_dir/conf.d/*.fish
+  for file in $__fish_config_dir/conf.d/*.fish $__fish_sysconf_dir/conf.d/*.fish
     set -l basename (string replace -r '^.*/' '' -- $file)
     contains -- $basename $sourcelist
     and continue
