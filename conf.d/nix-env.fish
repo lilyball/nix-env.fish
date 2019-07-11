@@ -7,46 +7,100 @@ if test -e $nix_profile_path
     set -xg (string split -m 1 = $line)
   end
 
-  # Insert Nix's fish share directories into fish's special variables
-  set -l nix_share ~/.nix-profile/share/fish
-  set -l nix_vendor_functions $nix_share/vendor_functions.d
+  # Insert Nix's fish share directories into fish's special variables.
+  # nixpkgs-installed fish tries to set these up already if NIX_PROFILES is defined, which won't
+  # be the case when sourcing $__fish_data_dir/share/config.fish normally, but might be for a
+  # recursive invocation. To guard against that, we'll only insert paths that don't already exit.
+  # Furthermore, for the vendor_conf.d sourcing, we'll use the pre-existing presence of a path in
+  # $fish_function_path to determine whether we want to source the relevant vendor_conf.d folder.
+
+  # To start, let's locally define NIX_PROFILES if it doesn't already exist.
+  set -al NIX_PROFILES
+  if test (count $NIX_PROFILES) -eq 0
+    set -a NIX_PROFILES $HOME/.nix-profile
+  end
+  # Replicate the logic from nixpkgs version of $__fish_data_dir/__fish_build_paths.fish.
+  set -l __nix_profile_paths (string split ' ' -- $NIX_PROFILES)[-1..1]
+  set -l __extra_completionsdir \
+    $__nix_profile_paths/etc/fish/completions \
+    $__nix_profile_paths/share/fish/vendor_completions.d
+  set -l __extra_functionsdir \
+    $__nix_profile_paths/etc/fish/functions \
+    $__nix_profile_paths/share/fish/vendor_functions.d
+  set -l __extra_confdir \
+    $__nix_profile_paths/etc/fish/conf.d \
+    $__nix_profile_paths/share/fish/vendor_conf.d \
+
+  ### Configure fish_function_path ###
+  # Remove any of our extra paths that may already exist.
+  # Record the equivalent __extra_confdir path for any function path that exists.
+  set -l existing_conf_paths
+  for path in $__extra_functionsdir
+    if set -l idx (contains --index -- $path $fish_function_path)
+      set -e fish_function_path[$idx]
+      set -a existing_conf_paths $__extra_confdir[(contains --index -- $path $__extra_functionsdir)]
+    end
+  end
+  # Insert the paths before $__fish_data_dir.
   if set -l idx (contains --index -- $__fish_data_dir/functions $fish_function_path)
-    # Fish has no way to simply insert into the middle of an array
+    # Fish has no way to simply insert into the middle of an array.
     set -l new_path $fish_function_path[1..$idx]
-    set new_path[$idx] $nix_vendor_functions
+    set -e new_path[$idx]
+    set -a new_path $__extra_functionsdir
     set fish_function_path $new_path $fish_function_path[$idx..-1]
   else
-    set -a fish_function_path $nix_vendor_functions
+    set -a fish_function_path $__extra_functionsdir
   end
 
-  set -l nix_vendor_comp $nix_share/vendor_completions.d
+  ### Configure fish_complete_path ###
+  # Remove any of our extra paths that may already exist.
+  for path in $__extra_completionsdir
+    if set -l idx (contains --index -- $path $fish_complete_path)
+      set -e fish_complete_path[$idx]
+    end
+  end
+  # Insert the paths before $__fish_data_dir.
   if set -l idx (contains --index -- $__fish_data_dir/completions $fish_complete_path)
     set -l new_path $fish_complete_path[1..$idx]
-    set new_path[$idx] $nix_vendor_comp
+    set -e new_path[$idx]
+    set -a new_path $__extra_completionsdir
     set fish_complete_path $new_path $fish_complete_path[$idx..-1]
   else
-    set -a fish_complete_path $nix_vendor_comp
+    set -a fish_complete_path $__extra_completionsdir
   end
 
-  set -l nix_conf $nix_share/vendor_conf.d
-  # In order to simulate being the extra conf, we need to make sure it hasn't been "overridden" yet
-  # we're not going to actually check for our actual extra confdir. And we're technically sourcing
-  # these files out of order, and can't stop anything in the real extra confdir from sourcing.
-  # This is cribbed from $__fish_data_dir/config.fish
+  ### Source conf directories ###
+  # The built-in directories were already sourced during shell initialization.
+  # Any __extra_confdir that came from $__fish_data_dir/__fish_build_paths.fish was also sourced.
+  # As explained above, we're using the presence of pre-existing paths in $fish_function_path as a
+  # signal that the corresponding conf dir has also already been sourced.
+  # In order to simulate this, we'll run through the same algorithm as found in
+  # $__fish_data_dir/config.fish except we'll avoid sourcing the file if it comes from an
+  # already-sourced location.
+  # Caveats:
+  # * Files will be sourced in a different order than we'd ideally do (because we're coming in
+  #   after the fact to source them).
+  # * If there are existing extra conf paths, files in them may have been sourced that should have
+  #   been suppressed by paths we're inserting in front.
+  # * Similarly any files in $__fish_data_dir/vendor_conf.d that should have been suppressed won't
+  #   have been.
   set -l sourcelist
   for file in $__fish_config_dir/conf.d/*.fish $__fish_sysconf_dir/conf.d/*.fish
+    # We know these paths were sourced already. Just record them.
     set -l basename (string replace -r '^.*/' '' -- $file)
     contains -- $basename $sourcelist
-    and continue
-    set -a sourcelist $basename
-    # Don't source, these files have already been sourced by Fish's global setup
+    or set -a sourcelist $basename
   end
-  for file in $nix_conf/*.fish
-    set -l basename (string replace -r '^.*/' '' -- $file)
-    contains -- $basename $sourcelist
-    and continue
-    # Source the file
-    [ -f $file -a -r $file ]
-    and source $file
+  for root in $__extra_confdir
+    for file in $root/*.fish
+      set -l basename (string replace -r '^.*/' '' -- $file)
+      contains -- $basename $sourcelist
+      and continue
+      set -a sourcelist $basename
+      contains -- $root $existing_conf_paths
+      and continue # this is a pre-existing path, it will have been sourced already
+      [ -f $file -a -r $file ]
+      and source $file
+    end
   end
 end
