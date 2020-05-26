@@ -1,5 +1,8 @@
 # Setup Nix
-set -l nix_profile_path ~/.nix-profile/etc/profile.d/nix.sh
+set -l nix_profile_path /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+if test ! -e $nix_profile_path
+  set nix_profile_path ~/.nix-profile/etc/profile.d/nix.sh
+end
 if test -e $nix_profile_path
   # Source the nix setup script
   # We're going to run the regular Nix profile under bash and then print out a few variables
