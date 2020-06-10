@@ -1,8 +1,37 @@
 # Setup Nix
+
+# We need to distinguish between single-user and multi-user installs.
+# This is difficult because there's no official way to do this.
+# We could look for the presence of /nix/var/nix/daemon-socket/socket but this will fail if the
+# daemon hasn't started yet. /nix/var/nix/daemon-socket will exist if the daemon has ever run, but
+# I don't think there's any protection against accidentally running `nix-daemon` as a user.
+# We also can't just look for /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh because
+# older single-user installs used the default profile instead of a per-user profile.
+# We can still check for it first, because all multi-user installs should have it, and so if it's
+# not present that's a pretty big indicator that this is a single-user install. If it does exist,
+# we still need to verify the install type. To that end we'll look for a root owner and sticky bit
+# on /nix/store. Multi-user installs set both, single-user installs don't. It's certainly possible
+# someone could do a single-user install as root and then manually set the sticky bit but that
+# would be extremely unusual.
+
 set -l nix_profile_path /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-if test ! -e $nix_profile_path
-  set nix_profile_path ~/.nix-profile/etc/profile.d/nix.sh
+set -l single_user_profile_path ~/.nix-profile/etc/profile.d/nix.sh
+if test -e $nix_profile_path
+  # The path exists. Double-check that this is a multi-user install.
+  # We can't just check for ~/.nix-profile/… because this may be a single-user install running as
+  # the wrong user.
+
+  # stat is not portable. Splitting the output of ls -nd is reliable on most platforms.
+  set -l owner (string split -n ' ' (ls -nd /nix/store 2>/dev/null))[3]
+  if not test -k /nix/store -a $owner -eq 0
+    # /nix/store is either not owned by root or not sticky. Assume single-user.
+    set nix_profile_path $single_user_profile_path
+  end
+else
+  # The path doesn't exist. Assume single-user
+  set nix_profile_path $single_user_profile_path
 end
+
 if test -e $nix_profile_path
   # Source the nix setup script
   # We're going to run the regular Nix profile under bash and then print out a few variables
