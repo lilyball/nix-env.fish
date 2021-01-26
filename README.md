@@ -13,3 +13,7 @@ Any Fish package manager should be able to install this.
 ```fish
 fisher add lilyball/nix-env.fish
 ```
+
+### Manual install
+
+You can install this manually by copying or symlinking the `conf.d/nix-env.fish` file into your `~/.config/fish/conf.d/` folder.
