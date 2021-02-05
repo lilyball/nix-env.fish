@@ -11,7 +11,7 @@ Any Fish package manager should be able to install this.
 ### [Fisher](https://github.com/jorgebucaran/fisher)
 
 ```fish
-fisher add lilyball/nix-env.fish
+fisher install lilyball/nix-env.fish
 ```
 
 ### Manual install
